@@ -21,10 +21,14 @@ description:         Please see the README on GitHub at <https://github.com/gith
 
 dependencies:
 - base >= 4.7 && < 5
+- array
 - conduit
 - conduit-extra
 - containers
+- hashable
+- megaparsec
 - text
+- unordered-containers
 
 default-extensions:
 - BangPatterns
