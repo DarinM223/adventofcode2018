@@ -54,11 +54,13 @@ updateGuard lastMin min guard = guard
   indexes = [lastMin..min - 1]
   incCount counts min = IM.adjust (+ 1) min counts
 
+mostAsleep :: Guard -> (Int, Int)
+mostAsleep = maximumBy (\a b -> compare (snd a) (snd b))
+           . IM.toList
+           . _minCount
+
 mostAsleepMin :: Guard -> Int
-mostAsleepMin = fst
-              . maximumBy (\a b -> compare (snd a) (snd b))
-              . IM.toList
-              . _minCount
+mostAsleepMin = fst . mostAsleep
 
 data Guards = Guards
   { _current       :: Int
@@ -100,8 +102,8 @@ applyTimestamp t guards = case _action t of
                    then IM.insert id (mkGuard id) (_guards guards)
                    else _guards guards
     }
-  FallsAsleep   -> guards'
-  WakesUp       -> guards'
+  FallsAsleep -> guards'
+  WakesUp     -> guards'
     { _guards = IM.adjust (updateGuard lastMin min)
                           (_current guards)
                           (_guards guards)
@@ -111,12 +113,30 @@ applyTimestamp t guards = case _action t of
   lastMin = _minute $ _lastTimestamp guards
   guards' = guards { _lastTimestamp = t }
 
-day4part1 :: FilePath -> IO ()
-day4part1 path = do
+mostFrequentlyAsleepAt :: Guards -> (Guard, (Int, Int))
+mostFrequentlyAsleepAt
+  = maximumBy (\(_, (_, c1)) (_, (_, c2)) -> compare c1 c2)
+  . fmap ((\guard -> (guard, mostAsleep guard)) . snd)
+  . IM.toList
+  . _guards
+
+day4 :: FilePath -> IO ()
+day4 path = do
+  -- Part 1
+  putStrLn "--- Part 1 ---"
   ls <- fmap T.pack . lines <$> readFile path
   let stamps    = sort . catMaybes . fmap parseLine $ ls
       guards    = foldl' (flip applyTimestamp) mkGuards stamps
       mostSleep = maximum . fmap snd . IM.toList . _guards $ guards
       bestMin   = mostAsleepMin mostSleep
-  print mostSleep
-  print bestMin
+  putStrLn $ "Guard: " ++ show mostSleep
+  putStrLn $ "Min: " ++ show bestMin
+
+  putStrLn ""
+
+  -- Part 2
+  putStrLn "--- Part 2 ---"
+  let (g, (min, cnt)) = mostFrequentlyAsleepAt guards
+  putStrLn $ "Guard: " ++ show g
+          ++ " Min: " ++ show min
+          ++ " Count: " ++ show cnt
