@@ -62,11 +62,21 @@ area l (a, b) = fst $ go (a, b) (a, b) HM.empty
     partOfArea = length nearest == 1 && head nearest == (r, c)
     possibilities = [(r' - 1, c'), (r' + 1, c'), (r', c' - 1), (r', c' + 1)]
     result = foldl'
-      (\(c', map) (r'', c'') ->
-        let (!dc, !map') = go (r, c) (r'', c'') map
-        in (c' + dc, map'))
+      (\(!count, !map) (r'', c'') ->
+        let (dc, map') = go (r, c) (r'', c'') map
+        in (count + dc, map'))
       (1, (HM.insert (r', c') True map))
       possibilities
+
+totalDist :: [(Int, Int)] -> (Int, Int) -> Int
+totalDist l p = foldl' (\c p' -> c + dist p p') 0 l
+
+countTotalDist :: Int -> [(Int, Int)] -> Int
+countTotalDist bound l =
+  length . filter (< bound) . fmap (totalDist l) $ indexes
+ where
+  (minr, maxr, minc, maxc) = edges l
+  indexes = [(r, c) | r <- [minr..maxr], c <- [minc..maxc]]
 
 readPoints path = catMaybes . fmap parseLine . lines <$> readFile path
 
@@ -79,4 +89,4 @@ day6part1 path = do
 day6part2 :: FilePath -> IO ()
 day6part2 path = do
   points <- readPoints path
-  undefined
+  print $ countTotalDist 10000 points
