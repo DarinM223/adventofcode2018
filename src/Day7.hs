@@ -41,10 +41,10 @@ instance Show (IORef GraphNode) where
 mkGraphNode :: Char -> IO GraphNode'
 mkGraphNode c = newIORef $ GraphNode c [] 0
 
-type Graph = [GraphNode']
+type Graph = IM.IntMap GraphNode'
 
 buildGraph :: [(Char, Char)] -> IO Graph
-buildGraph = fmap (fmap snd . IM.toList) . foldlM buildEdges IM.empty
+buildGraph = foldlM buildEdges IM.empty
  where
   buildEdges map (source, sink)
     | not $ IM.member source' map = do
@@ -64,27 +64,26 @@ buildGraph = fmap (fmap snd . IM.toList) . foldlM buildEdges IM.empty
     source' = ord source
     sink'   = ord sink
 
-findAvailable :: Graph -> IO [(GraphNode', GraphNode)]
-findAvailable graph = do
-  available <- filterM (fmap ((== 0) . _incoming) . readIORef) graph
-  zipped <- zip available <$> mapM readIORef available
-  return $ sortBy (\(_, e1) (_, e2) -> compare e1 e2) zipped
+findAvailable :: Graph -> IO [GraphNode]
+findAvailable = fmap (sort . filter ((== 0) . _incoming))
+              . mapM (readIORef . snd)
+              . IM.toList
 
-removeNode :: (GraphNode', GraphNode) -> Graph -> IO Graph
-removeNode (node', node) graph = do
+removeNode :: GraphNode -> Graph -> IO Graph
+removeNode node graph = do
   forM_ (_edges node) $ \edgeRef ->
     modifyIORef' edgeRef $ \edge -> edge { _incoming = _incoming edge - 1 }
-  return $ filter (/= node') graph
+  return $ IM.delete (ord (_name node)) graph
 
 data Elf = Elf
-  { _work :: Maybe (GraphNode', GraphNode)
+  { _work :: Maybe GraphNode
   , _time :: Int
   } deriving (Show, Eq)
 
 buildInstructions :: Graph -> IO String
 buildInstructions graph = findAvailable graph >>= \case
-  (t@(_, available):_) ->
-    removeNode t graph >>= fmap (_name available:) . buildInstructions
+  (available:_) ->
+    removeNode available graph >>= fmap (_name available:) . buildInstructions
   _ -> return []
 
 testTimeFn :: Char -> Int
@@ -98,35 +97,35 @@ multElvesTime timeFn = go 0
  where
   -- What a complete mess :(
 
-  elfTime (Elf m t)  = maybe 1000 (const t) m
-  workTime = timeFn . _name . snd
+  elfTime (Elf m t) = maybe Nothing (const $ Just t) m
+  workTime = timeFn . _name
 
   addWork _ []                      = []
   addWork [] rest                   = rest
   addWork (w:ws) (Elf Nothing _:es) = Elf (Just w) (workTime w):addWork ws es
   addWork ws (Elf (Just w) t:es)    = Elf (Just w) t:addWork ws es
 
-  updateElves minTime = foldr updateElf ([], [])
+  decTimes minTime = foldr decElf ([], [])
    where
-    updateElf (Elf Nothing _) (elves, completed) =
+    decElf (Elf Nothing _) (elves, completed) =
       (Elf Nothing 0:elves, completed)
-    updateElf (Elf (Just w) time) (elves, completed)
+    decElf (Elf (Just w) time) (elves, completed)
       | timeDiff == 0 = (Elf Nothing 0:elves, w:completed)
       | otherwise     = (Elf (Just w) timeDiff:elves, completed)
-     where timeDiff = if time - minTime < 0 then 0 else time - minTime
+     where timeDiff = time - minTime
 
-  filterNames names = filter (\(_, e) -> not $ (_name e) `elem` names)
+  filterNames names = filter (\e -> not $ (_name e) `elem` names)
 
   go time elves graph = findAvailable graph >>= \case
     []        -> return $ time + maximum (fmap _time elves)
     available -> do
-      let names          = fmap (_name . snd) . catMaybes . fmap _work $ elves
+      let names          = fmap _name . catMaybes . fmap _work $ elves
           availableElves = length $ filter (isNothing . _work) elves
           assigned       = take availableElves $ filterNames names available
           elves'         = addWork assigned elves
-          minTime        = minimum $ fmap elfTime elves'
-      let (elves'', completed) = updateElves minTime elves'
-      graph' <- foldlM (\graph t -> removeNode t graph) graph completed
+          minTime        = minimum . catMaybes . fmap elfTime $ elves'
+      let (elves'', completed) = decTimes minTime elves'
+      graph' <- foldlM (flip removeNode) graph completed
       go (time + minTime) elves'' graph'
 
 day7part1 :: FilePath -> IO ()
