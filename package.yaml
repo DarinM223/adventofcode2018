@@ -27,6 +27,8 @@ dependencies:
 - containers
 - hashable
 - megaparsec
+- mtl
+- split
 - text
 - unordered-containers
 
