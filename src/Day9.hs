@@ -34,9 +34,15 @@ insert :: Int -> a -> Seq a -> Seq a
 insert i v l = (left :|> v) <> right
  where (left, right) = Seq.splitAt (i + 1) l
 
-delete :: Int -> Seq a -> Seq a
-delete i l = left <> Seq.drop 1 right
- where (left, right) = Seq.splitAt i l
+uncons :: Seq a -> (a, Seq a)
+uncons (e :<| es) = (e, es)
+uncons _          = error "Empty sequence"
+
+delete :: Int -> Seq a -> (a, Seq a)
+delete i l = (removed, left <> right')
+ where
+  (left, right) = Seq.splitAt i l
+  (removed, right') = uncons right
 
 ended :: Game -> Bool
 ended g = _nextMarble g == _lastMarble g
@@ -67,8 +73,7 @@ turn g@Game{ _currentPlayer = (p:ps) }
   insertedMarbles = insert nextIndex (_nextMarble g) (_marbles g)
 
   sevenPrev = foldl' (\a _ -> prev a marblesLen) (_marbleIndex g) [1..7]
-  removed = Seq.index (_marbles g) sevenPrev
-  removedMarbles = delete sevenPrev (_marbles g)
+  (removed, removedMarbles) = delete sevenPrev (_marbles g)
 turn _ = error "_currentPlayer should be infinite list"
 
 highScore :: Game -> Int
@@ -81,7 +86,7 @@ highScore = go
    where
     g' = turn g
 
-day9part1 :: Int -- ^ Num players
-          -> Int -- ^ Last marble points
-          -> Int -- ^ High score
-day9part1 numPlayers lastMarble = highScore $ mkGame numPlayers lastMarble
+day9 :: Int -- ^ Num players
+     -> Int -- ^ Last marble points
+     -> Int -- ^ High score
+day9 numPlayers lastMarble = highScore $ mkGame numPlayers lastMarble
