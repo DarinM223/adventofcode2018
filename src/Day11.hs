@@ -1,13 +1,7 @@
-{-# LANGUAGE ScopedTypeVariables #-}
-
 module Day11 where
 
-import Control.Monad.State
-import Control.Monad.ST
 import Data.Array
-import Data.Array.ST
 import Data.Foldable
-import qualified Data.Array.MArray as A
 
 mkGrid :: [((Int, Int), Int)]
 mkGrid = do
@@ -60,33 +54,31 @@ mkBest :: Best
 mkBest = Best min min min min
  where min = -1000
 
--- Only way to solve this is with leetcode BS
-partialSumBS :: (A.MArray a Int m) => Int -> a (Int, Int) Int -> m Best
-partialSumBS input sumArr = do
-  forM_ [(x, y) | x <- [1..300], y <- [1..300]] $ \(x, y) -> do
-    let id = x + 10
-        p  = id * y + input
-        p' = ((p * id) `div` 100) `mod` 10 - 5
-    prevY <- A.readArray sumArr (y - 1, x)
-    prevX <- A.readArray sumArr (y, x - 1)
-    prevBoth <- A.readArray sumArr (y - 1, x - 1)
-    A.writeArray sumArr (y, x) (p' + prevY + prevX - prevBoth)
-  (_, best) <- flip runStateT mkBest $ do
-    forM_ [(s, y, x) | s <- [1..300], y <- [s..300], x <- [s..300]] $ \(s, y, x) -> do
-      value <- lift $ A.readArray sumArr (y, x)
-      prevY <- lift $ A.readArray sumArr (y - s, x)
-      prevX <- lift $ A.readArray sumArr (y, x - s)
-      prevBoth <- lift $ A.readArray sumArr (y - s, x - s)
-      let total = value - prevY - prevX + prevBoth
-      best <- gets _best
-      when (total > best) $ put $ Best x y s total
-  return best
-
 day11part2 :: Int -> ((Int, Int, Int), Int)
-day11part2 input = runST go
+day11part2 input = ((bx - bs + 1, by - bs + 1, bs), best)
  where
-  go :: forall s. ST s ((Int, Int, Int), Int)
-  go = do
-    (arr' :: STArray s (Int, Int) Int) <- A.newArray ((0, 0), (300, 300)) 0
-    Best bx by bs best <- partialSumBS input arr'
-    return ((bx - bs + 1, by - bs + 1, bs), best)
+  Best bx by bs best = findBest sums
+
+  sums = array ((0, 0), (300, 300)) $ do
+    x <- [0..300]
+    y <- [0..300]
+    if x == 0 || y == 0
+      then return ((y, x), 0)
+      else return ((y, x), calcPower y x)
+   where
+    calcPower y x = p''
+     where
+      id = x + 10
+      p = id * y + input
+      p' = ((p * id) `div` 100) `mod` 10 - 5
+      p'' = p' + sums ! (y-1, x) + sums ! (y, x-1) - sums ! (y-1, x-1)
+
+  findBest sums = foldl' accBest mkBest
+    [(s, y, x) | s <- [1..300], y <- [s..300], x <- [s..300]]
+   where
+    accBest prevBest (s, y, x)
+      | total > _best prevBest = Best x y s total
+      | otherwise              = prevBest
+     where
+      total =
+        sums ! (y,x) - sums ! (y-s,x) - sums ! (y,x-s) + sums ! (y-s,x-s)
