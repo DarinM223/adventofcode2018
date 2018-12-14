@@ -44,7 +44,6 @@ updateUntilTenAfter amount =
    where
     (full', e1', e2') = turn full e1 e2
 
--- | Takes around 3 minutes :(
 updateUntilSequence :: Seq Int -> Int
 updateUntilSequence pat =
   go (S.fromList [3, 7]) (S.fromList [3, 7]) (S.fromList [7])
@@ -65,3 +64,8 @@ day14part1 = updateUntilTenAfter
 
 day14part2 :: Int -> Int
 day14part2 = updateUntilSequence . digits
+
+-- | Takes ~16 seconds when -O2 is enabled, main is set to this
+-- function, and you run it with `stack exec adventofcode2018-exe`
+day14main :: IO ()
+day14main = print $ day14part2 598701
