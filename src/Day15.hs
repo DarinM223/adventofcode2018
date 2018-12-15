@@ -145,11 +145,11 @@ countHitPoints ch units = foldl' (\acc unit -> acc + _hp unit) 0
                         . M.elems
                         $ _units units
 
-run :: Grid -> Units -> (Int, Int)
+run :: Grid -> Units -> (Int, Int, Units)
 run = go 0
  where
   go !turnNum grid units
-    | Just ch <- won units = (turnNum - 1, countHitPoints ch units)
+    | Just ch <- won units = (turnNum - 1, countHitPoints ch units, units)
     | otherwise            = go (turnNum + 1) grid (runTurn grid units)
 
 mkGrid :: [String] -> Grid
@@ -198,6 +198,29 @@ day15part1 path = do
   (grid, units) <- parse path
   printState grid units
   print units
-  let (turnNum, hitPoints) = run grid units
+  let (turnNum, hitPoints, _) = run grid units
   putStrLn $ "Turn number: " ++ show turnNum
   putStrLn $ "Hit points: " ++ show hitPoints
+
+updatePower :: Int -> Unit -> Unit
+updatePower power unit = unit { _pow = power }
+
+day15part2 :: FilePath -> Int -> IO ()
+day15part2 path elfPower = do
+  (grid, units) <- parse path
+  let idxs   = fmap _pos $ filter ((== 'E') . _type) $ M.elems $ _units units
+      units' = units
+        { _units = foldl'
+          (\units i -> M.adjust (updatePower elfPower) i units)
+          (_units units)
+          idxs
+        }
+  putStrLn $ "Original elfs: " ++ show (_countElfs units')
+  let (turnNum, hitPoints, units'') = run grid units'
+  putStrLn $ "Turn number: " ++ show (turnNum + 1)
+  putStrLn $ "Hit points: " ++ show hitPoints
+  putStrLn $ "Elfs left alive: " ++ show (_countElfs units'')
+
+-- | Solution to part 2 is 34 elves.
+day15part2solution :: IO ()
+day15part2solution = day15part2 "resources/day15/input" 34
