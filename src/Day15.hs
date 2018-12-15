@@ -1,15 +1,16 @@
 module Day15 where
 
-import Control.Monad (void)
 import Data.Array
 import Data.Foldable
 import Data.Ord (comparing)
 import Data.Maybe (catMaybes)
+import Data.Sequence (Seq (..))
 import qualified Data.Map.Strict as M
-import qualified Data.HashSet as HS
+import qualified Data.HashMap.Strict as HM
 
 type Point = (Int, Int)
 type Grid = Array (Int, Int) Char
+type Dists = HM.HashMap Point Int
 
 data Location = Location
   { _coord :: Point
@@ -22,15 +23,15 @@ instance Ord Location where
 
 data Unit = Unit
   { _type :: Char
-  , _pos  :: Point
-  , _hp   :: Int
+  , _pos  :: !Point
+  , _hp   :: !Int
   , _pow  :: Int
   } deriving (Show, Eq)
 
 data Units = Units
-  { _units        :: (M.Map (Int, Int) Unit)
-  , _countElfs    :: Int
-  , _countGoblins :: Int
+  { _units        :: !(M.Map (Int, Int) Unit)
+  , _countElfs    :: !Int
+  , _countGoblins :: !Int
   } deriving (Show, Eq)
 
 possibleIndexes :: Point -> [(Int, Int)]
@@ -40,54 +41,49 @@ validPos :: Grid -> M.Map (Int, Int) Unit -> Point -> Bool
 validPos grid map p =
   inRange (bounds grid) p && grid ! p /= '#' && not (M.member p map)
 
-dist :: Grid -> Units -> Point -> Point -> Maybe Int
-dist grid units p (y2, x2) = go HS.empty p
+buildDistGrid :: Grid -> Units -> Point -> Dists
+buildDistGrid grid units p = go (HM.fromList [(p, 0)]) ((p, 0) :<| Empty)
  where
-  units' = M.delete p $ _units units
-  go _ (y, x) | y == y2 && x == x2 = Just 0
-  go prevs p
-    | not $ validPos grid units' p = Nothing
-    | HS.member p prevs            = Nothing
-    | otherwise                    = dists
+  go dists Empty = dists
+  go !dists ((p, level) :<| rest) = go dists' rest'
    where
-    prevs' = HS.insert p prevs
-    dists = fmap (+ 1) $ foldl' accDist Nothing (possibleIndexes p)
-    accDist (Just minDist) = Just . maybe minDist (min minDist) . go prevs'
-    accDist Nothing        = go prevs'
+    indexes = filter (validPos grid (_units units)) $ possibleIndexes p
+    (dists', rest') = foldl' (insertPoint level) (dists, rest) indexes
+  insertPoint level (!dists, !queue) p
+    | HM.member p dists = (dists, queue)
+    | otherwise         = ( HM.insert p (level + 1) dists
+                          , queue :|> (p, level + 1) )
 
-adjs :: Grid -> Units -> Unit -> Unit -> [Location]
-adjs grid units curr = catMaybes
-                     . fmap mapLoc
-                     . filter (validPos grid (_units units))
-                     . possibleIndexes
-                     . _pos
- where
-  mapLoc i = Location i <$> dist grid units (_pos curr) i
+adjs :: Grid -> Units -> Dists -> Unit -> [Location]
+adjs grid units dists = catMaybes
+                      . fmap (\i -> Location i <$> HM.lookup i dists)
+                      . filter (validPos grid (_units units))
+                      . possibleIndexes
+                      . _pos
 
 chooseTarget :: Grid -> Units -> Unit -> Maybe Location
 chooseTarget grid units curr = case targets of
   [] -> Nothing
-  _  -> Just $ minimum targets
+  _  -> Just $ minimum $ targets
  where
+  dists = buildDistGrid grid units (_pos curr)
   unitList = filter ((/= _type curr) . _type) . M.elems $ _units units
-  targets = unitList >>= adjs grid units curr
+  targets = unitList >>= adjs grid units dists
 
 chooseMove :: Grid -> Units -> Unit -> Location -> Location
 chooseMove grid units curr location = minimum moves
  where
-  mapLoc i = Location i <$> dist grid units (_coord location) i
-  moves = catMaybes
-        . fmap mapLoc
-        . filter (validPos grid (_units units))
-        . possibleIndexes
-        $ _pos curr
+  dists = buildDistGrid grid units (_coord location)
+  mapLoc i = Location i <$> HM.lookup i dists
+  indexes = filter (validPos grid (_units units)) $ possibleIndexes $ _pos curr
+  moves = catMaybes $ fmap mapLoc $ indexes
 
 chooseEnemy :: Units -> Unit -> Maybe Unit
 chooseEnemy units curr
   | null enemies = Nothing
   | otherwise    = Just $ minimumBy (comparing _hp) enemies
  where
-  enemies = filter ((/= _type curr). _type)
+  enemies = filter ((/= _type curr) . _type)
           . catMaybes
           . fmap (flip M.lookup (_units units))
           . possibleIndexes
@@ -148,7 +144,6 @@ countHitPoints ch units = foldl' (\acc unit -> acc + _hp unit) 0
 run :: Grid -> Units -> (Int, Int)
 run = go 0
  where
-  go :: Int -> Grid -> Units -> (Int, Int)
   go !turnNum grid units
     | Just ch <- won units = (turnNum - 1, countHitPoints ch units)
     | otherwise            = go (turnNum + 1) grid (runTurn grid units)
@@ -199,19 +194,10 @@ day15part1 path = do
   (grid, units) <- parse path
   printState grid units
   print units
-  void $ foldlM
-    (\units _ -> do
-      let units' = runTurn grid units
-      printState grid units'
-      print units'
-      print $ countHitPoints 'E' units'
-      return units')
-    units
-    [0..1000]
-  {-let (turnNum, hitPoints) = run grid units-}
-  {-putStrLn $ "Turn number: " ++ show turnNum-}
-  {-putStrLn $ "Hit points: " ++ show hitPoints-}
+  let (turnNum, hitPoints) = run grid units
+  putStrLn $ "Turn number: " ++ show turnNum
+  putStrLn $ "Hit points: " ++ show hitPoints
 
 day15main :: IO ()
-{-day15main = day15part1 "mytest"-}
-day15main = day15part1 "resources/day15/input"
+day15main = day15part1 "mytest"
+{-day15main = day15part1 "resources/day15/input"-}
