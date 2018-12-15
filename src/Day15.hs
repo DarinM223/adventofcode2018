@@ -27,6 +27,10 @@ data Unit = Unit
   , _hp   :: !Int
   , _pow  :: Int
   } deriving (Show, Eq)
+instance Ord Unit where
+  compare u1 u2 = comparing _hp u1 u2
+               <> comparing (fst . _pos) u1 u2
+               <> comparing (snd . _pos) u1 u2
 
 data Units = Units
   { _units        :: !(M.Map (Int, Int) Unit)
@@ -81,7 +85,7 @@ chooseMove grid units curr location = minimum moves
 chooseEnemy :: Units -> Unit -> Maybe Unit
 chooseEnemy units curr
   | null enemies = Nothing
-  | otherwise    = Just $ minimumBy (comparing _hp) enemies
+  | otherwise    = Just $ minimum enemies
  where
   enemies = filter ((/= _type curr) . _type)
           . catMaybes
@@ -197,7 +201,3 @@ day15part1 path = do
   let (turnNum, hitPoints) = run grid units
   putStrLn $ "Turn number: " ++ show turnNum
   putStrLn $ "Hit points: " ++ show hitPoints
-
-day15main :: IO ()
-day15main = day15part1 "mytest"
-{-day15main = day15part1 "resources/day15/input"-}
