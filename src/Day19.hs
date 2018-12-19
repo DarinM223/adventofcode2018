@@ -1,7 +1,7 @@
 module Day19 where
 
-import Control.Monad
 import Data.Bits
+import Data.Foldable
 import Data.Vector (Vector)
 import Data.Void
 import Text.Megaparsec
@@ -56,24 +56,44 @@ parseFile path = do
         <*> (sc *> L.decimal)
         <*> (sc *> L.decimal)
 
--- I am an idiot who forgot that the index of the instruction pointer
--- doesn't have to be at 0 >_<
 runInstrs :: Int -> Instrs -> D.Registers -> D.Registers
 runInstrs ipIdx !instrs !regs = case instrs V.!? (regs IM.! ipIdx) of
   Just (fnName, a, b, c) ->
     let regs' = updateRegs (strToFn fnName) a b c
     in runInstrs ipIdx instrs regs'
   Nothing -> regs
- where
-  updateRegs fn a b c = IM.adjust (+ 1) ipIdx $ fn regs (0, a, b, c)
+ where updateRegs fn a b c = IM.adjust (+ 1) ipIdx $ fn regs (0, a, b, c)
+
+firstReg :: Int -> Int -> Instrs -> D.Registers -> IO ()
+firstReg regIdx ipIdx !instrs !regs = case instrs V.!? (regs IM.! ipIdx) of
+  Just (fnName, a, b, c) -> do
+    let regs' = updateRegs (strToFn fnName) a b c
+    print $ regs IM.! regIdx
+    firstReg regIdx ipIdx instrs regs'
+  Nothing -> return ()
+ where updateRegs fn a b c = IM.adjust (+ 1) ipIdx $ fn regs (0, a, b, c)
 
 day19part1 :: FilePath -> IO ()
 day19part1 path = do
   (start, instrs) <- parseFile path
-  print start
-  print $ length instrs
   let regs = runInstrs start instrs mkRegs
   print regs
 
-day19main :: IO ()
-day19main = day19part1 "resources/day19/input"
+-- Register is 5 and the number to get sum of factors of is 10551276
+findFirstReg :: FilePath -> IO ()
+findFirstReg path = do
+  (start, instrs) <- parseFile path
+  let regs = IM.insert 0 1 mkRegs
+  firstReg 5 start instrs regs
+
+sumOfFactors :: Int -> Int
+sumOfFactors n = foldl' acc 0 [2..sqrt' n] + n + 1
+ where
+  sqrt' = floor . sqrt . fromIntegral
+  acc sum i
+    | n `rem` i == 0 = if i == revI then sum + i else sum + i + revI
+    | otherwise      = sum
+   where revI = n `div` i
+
+day19part2 :: IO ()
+day19part2 = print $ sumOfFactors 10551276
