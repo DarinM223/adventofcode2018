@@ -1,6 +1,7 @@
 module Day12 where
 
 import Data.Foldable
+import Data.Maybe (fromMaybe)
 import qualified Data.HashMap.Strict as HM
 
 parse :: FilePath -> IO (String, HM.HashMap String Char)
@@ -41,10 +42,7 @@ generation :: HM.HashMap String Char -> String -> String
 generation map s = replicate 2 '.' ++ go map s
  where
   go map (a:b:e:c:d:rest) = e':go map (b:e:c:d:rest)
-   where
-    e' = case HM.lookup (a:b:e:c:d:[]) map of
-      Just plant -> plant
-      Nothing    -> '.'
+   where e' = fromMaybe '.' $ HM.lookup [a,b,e,c,d] map
   go map rest | '#' `elem` rest =
     go map $ rest ++ replicate (5 - length rest) '.'
   go _ _ = []

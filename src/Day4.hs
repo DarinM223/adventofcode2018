@@ -3,7 +3,7 @@ module Day4 where
 import Conduit
 import Data.Foldable (foldl', maximumBy)
 import Data.List (sort)
-import Data.Maybe (catMaybes)
+import Data.Maybe (mapMaybe)
 import Text.Megaparsec
 import Text.Megaparsec.Char
 import qualified Data.IntMap.Strict as IM
@@ -125,7 +125,7 @@ day4 path = do
   -- Part 1
   putStrLn "--- Part 1 ---"
   ls <- fmap T.pack . lines <$> readFile path
-  let stamps    = sort . catMaybes . fmap parseLine $ ls
+  let stamps    = sort . mapMaybe parseLine $ ls
       guards    = foldl' (flip applyTimestamp) mkGuards stamps
       mostSleep = maximum . fmap snd . IM.toList . _guards $ guards
       bestMin   = mostAsleepMin mostSleep

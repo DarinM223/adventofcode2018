@@ -3,7 +3,7 @@ module Day3 where
 import Conduit
 import Data.Foldable (foldl')
 import Data.Hashable
-import Data.Maybe (catMaybes)
+import Data.Maybe (mapMaybe)
 import Text.Megaparsec
 import Text.Megaparsec.Char
 import qualified Data.Conduit.Binary as CB
@@ -55,7 +55,7 @@ data Region = Region
 
 applyRegion :: Region -> Grid -> Grid
 applyRegion region grid = foldl'
-  (\grid i -> HM.adjust (incValue (_id region)) i grid)
+  (flip (HM.adjust (incValue (_id region))))
   grid
   (indexes region)
 
@@ -94,7 +94,7 @@ day3part1 path = fmap countOverlaps $ runConduitRes
   .| CT.lines
   .| CL.fold accum finalGrid
  where
-  accum grid = maybe grid (flip applyRegion grid) . parseLine
+  accum grid = maybe grid (`applyRegion` grid) . parseLine
 
 noOverlaps :: Grid -> Region -> Bool
 noOverlaps grid = foldr checkIndex True . indexes
@@ -106,8 +106,7 @@ noOverlaps grid = foldr checkIndex True . indexes
 
 candidates :: Grid -> [Int]
 candidates = IS.toList . IS.fromList
-           . catMaybes
-           . fmap (fmap unID . _firstID . snd)
+           . mapMaybe (fmap unID . _firstID . snd)
            . filter ((== 1) . _count . snd)
            . HM.toList
 
@@ -123,6 +122,5 @@ day3part2 path = fmap check $ runConduitRes
                    , IM.insert (unID $ _id region) region regions )
     Nothing -> (grid, regions)
   check (grid, regions) = filter (noOverlaps grid)
-                        . catMaybes
-                        . fmap (flip IM.lookup regions)
+                        . mapMaybe (`IM.lookup` regions)
                         $ candidates grid

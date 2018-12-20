@@ -14,9 +14,8 @@ react = reverse . foldl' pushStack []
     | otherwise       = ch:top:rest
 
 allLetters :: String -> [Int]
-allLetters s = fmap (length . react)
-             . fmap (\l -> filter (\c -> toLower c /= l) s)
-             $ ['a'..'z']
+allLetters s = length . react . (\l -> filter (\c -> toLower c /= l) s)
+           <$> ['a'..'z']
 
 day5part1 :: FilePath -> IO ()
 day5part1 path = do

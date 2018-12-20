@@ -15,7 +15,7 @@ import qualified Text.Megaparsec.Char.Lexer as L
 type Registers = IM.IntMap Int
 type Instruction = (Int, Int, Int, Int)
 newtype TaggedFn = TaggedFn
-  { unTag :: (Int, (Registers -> Instruction -> Registers)) }
+  { unTag :: (Int, Registers -> Instruction -> Registers) }
 type MaybeOps = IM.IntMap [TaggedFn]
 
 instance Show TaggedFn where
@@ -163,7 +163,7 @@ guessAndCheck ops = fmap
     possibleOps = catMaybes $ foldr recur [] fns'
 
 execute :: MaybeOps -> Registers -> Instruction -> Registers
-execute ops regs instr@(op, _, _, _) = (lookupFn op ops) regs instr
+execute ops regs instr@(op, _, _, _) = lookupFn op ops regs instr
 
 day16part1 :: FilePath -> IO ()
 day16part1 path = do

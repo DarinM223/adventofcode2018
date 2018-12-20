@@ -3,7 +3,7 @@ module Day15 where
 import Data.Array
 import Data.Foldable
 import Data.Ord (comparing)
-import Data.Maybe (catMaybes)
+import Data.Maybe (mapMaybe)
 import Data.Sequence (Seq (..))
 import qualified Data.Map.Strict as M
 import qualified Data.HashMap.Strict as HM
@@ -59,8 +59,7 @@ buildDistGrid grid units p = go (HM.fromList [(p, 0)]) ((p, 0) :<| Empty)
                           , queue :|> (p, level + 1) )
 
 adjs :: Grid -> Units -> Dists -> Unit -> [Location]
-adjs grid units dists = catMaybes
-                      . fmap (\i -> Location i <$> HM.lookup i dists)
+adjs grid units dists = mapMaybe (\i -> Location i <$> HM.lookup i dists)
                       . filter (validPos grid (_units units))
                       . possibleIndexes
                       . _pos
@@ -68,7 +67,7 @@ adjs grid units dists = catMaybes
 chooseTarget :: Grid -> Units -> Unit -> Maybe Location
 chooseTarget grid units curr = case targets of
   [] -> Nothing
-  _  -> Just $ minimum $ targets
+  _  -> Just $ minimum targets
  where
   dists = buildDistGrid grid units (_pos curr)
   unitList = filter ((/= _type curr) . _type) . M.elems $ _units units
@@ -80,7 +79,7 @@ chooseMove grid units curr location = minimum moves
   dists = buildDistGrid grid units (_coord location)
   mapLoc i = Location i <$> HM.lookup i dists
   indexes = filter (validPos grid (_units units)) $ possibleIndexes $ _pos curr
-  moves = catMaybes $ fmap mapLoc $ indexes
+  moves = mapMaybe mapLoc indexes
 
 chooseEnemy :: Units -> Unit -> Maybe Unit
 chooseEnemy units curr
@@ -88,8 +87,7 @@ chooseEnemy units curr
   | otherwise    = Just $ minimum enemies
  where
   enemies = filter ((/= _type curr) . _type)
-          . catMaybes
-          . fmap (flip M.lookup (_units units))
+          . mapMaybe (`M.lookup` _units units)
           . possibleIndexes
           $ _pos curr
 
@@ -179,7 +177,7 @@ mkUnits ls = foldl' accRow (Units M.empty 0 0) (zip [0..] ls)
      updateIfCh ch' count = if ch == ch' then count + 1 else count
 
 printState :: Grid -> Units -> IO ()
-printState grid units = do
+printState grid units =
   forM_ [0..maxy] $ \y -> do
     forM_ [0..maxx] $ \x -> case M.lookup (y, x) (_units units) of
       Just unit -> putChar $ _type unit
@@ -211,7 +209,7 @@ day15part2 path elfPower = do
   let idxs   = fmap _pos $ filter ((== 'E') . _type) $ M.elems $ _units units
       units' = units
         { _units = foldl'
-          (\units i -> M.adjust (updatePower elfPower) i units)
+          (flip (M.adjust (updatePower elfPower)))
           (_units units)
           idxs
         }

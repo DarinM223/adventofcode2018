@@ -2,7 +2,7 @@ module Day6 where
 
 import Data.Foldable
 import Data.List
-import Data.Maybe (catMaybes)
+import Data.Maybe (mapMaybe)
 import Data.Void
 import Text.Megaparsec
 import Text.Megaparsec.Char
@@ -20,7 +20,7 @@ parseLine :: String -> Maybe (Int, Int)
 parseLine = eitherToMaybe . runParser parse ""
  where
   parse :: Parsec Void String (Int, Int)
-  parse = (,) <$> L.decimal <*> ((string ", ") *> L.decimal)
+  parse = (,) <$> L.decimal <*> (string ", " *> L.decimal)
 
 closest :: [(Int, Int)] -> (Int, Int) -> [(Int, Int)]
 closest points point = fmap snd filteredPts
@@ -41,7 +41,7 @@ edges ((r,c):es) = foldl' go (r,r,c,c) es
     (min minr r, max maxr r, min minc c, max maxc c)
 
 filterInf :: [(Int, Int)] -> [(Int, Int)]
-filterInf l = filter (\p -> not $ p `elem` edgepoints) l
+filterInf l = filter (`notElem` edgepoints) l
  where
   (minr, maxr, minc, maxc) = edges l
   indexes = [(r, minc) | r <- [minr-1..maxr+1]]
@@ -65,7 +65,7 @@ area l (a, b) = fst $ go (a, b) (a, b) HM.empty
       (\(!count, !map) (r'', c'') ->
         let (dc, map') = go (r, c) (r'', c'') map
         in (count + dc, map'))
-      (1, (HM.insert (r', c') True map))
+      (1, HM.insert (r', c') True map)
       possibilities
 
 totalDist :: [(Int, Int)] -> (Int, Int) -> Int
@@ -78,7 +78,7 @@ countTotalDist bound l =
   (minr, maxr, minc, maxc) = edges l
   indexes = [(r, c) | r <- [minr..maxr], c <- [minc..maxc]]
 
-readPoints path = catMaybes . fmap parseLine . lines <$> readFile path
+readPoints path = mapMaybe parseLine . lines <$> readFile path
 
 day6part1 :: FilePath -> IO ()
 day6part1 path = do

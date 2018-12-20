@@ -51,7 +51,7 @@ parseFile path = do
     sc = L.space space1 empty empty
 
     parse = (,,,)
-        <$> (L.lexeme sc (many alphaNumChar))
+        <$> L.lexeme sc (many alphaNumChar)
         <*> (sc *> L.decimal)
         <*> (sc *> L.decimal)
         <*> (sc *> L.decimal)

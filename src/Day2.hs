@@ -36,7 +36,7 @@ day2part2 path = do
   ls <- fmap T.pack . lines <$> readFile path
   let matches = findMatches ls
   print matches
-  print $ fmap (\(a, b) -> takeOutDiff a b) matches
+  print $ fmap (uncurry takeOutDiff) matches
 
 findMatches :: [T.Text] -> [(T.Text, T.Text)]
 findMatches ts = do
@@ -58,6 +58,4 @@ diffByOne t1 t2 = go t1 t2 False
     | T.length t1 /= T.length t2 = False
     | T.null t1 && T.null t2     = diff
     | T.head t1 == T.head t2     = go (T.tail t1) (T.tail t2) diff
-    | otherwise                  = if diff
-                                     then False
-                                     else go (T.tail t1) (T.tail t2) True
+    | otherwise                  = not diff && go (T.tail t1) (T.tail t2) True

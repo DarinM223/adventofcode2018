@@ -1,6 +1,6 @@
 module Day10 where
 
-import Data.Maybe (catMaybes)
+import Data.Maybe (mapMaybe)
 import Data.Void (Void)
 import Text.Megaparsec
 import Text.Megaparsec.Char
@@ -33,15 +33,15 @@ parseLine = eitherToMaybe . runParser parse ""
     <*> (sc *> parseNum <* sc <* char '>')
 
 fetchLights :: FilePath -> IO [Light]
-fetchLights path = catMaybes . fmap parseLine . lines <$> readFile path
+fetchLights path = mapMaybe parseLine . lines <$> readFile path
 
 messageBounds :: [Light] -> Maybe (Int, Int)
 messageBounds l | maxy - miny <= 10 = Just (miny, maxy)
                 | otherwise         = Nothing
  where
   positions = fmap _position l
-  maxy = maximum $ fmap snd $ positions
-  miny = minimum $ fmap snd $ positions
+  maxy = maximum $ snd <$> positions
+  miny = minimum $ snd <$> positions
 
 message :: (Int, Int) -> [Light] -> (Int, String)
 message (miny, maxy) l = (maxX + 1, message)
@@ -51,7 +51,7 @@ message (miny, maxy) l = (maxX + 1, message)
     x <- [0..maxX]
     if HM.member (x, y) map then return 'X' else return '.'
   maxX = maximum $ fmap (fst . _position) l
-  map = HM.fromList $ fmap ((, True) . _position) $ l
+  map = HM.fromList $ (, True) . _position <$> l
 
 printMessage :: Int -> String -> IO ()
 printMessage amount s = case take amount s of

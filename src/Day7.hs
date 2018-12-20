@@ -5,7 +5,7 @@ import Data.Char
 import Data.Foldable
 import Data.IORef
 import Data.List
-import Data.Maybe (catMaybes, isNothing)
+import Data.Maybe (isNothing, mapMaybe)
 import Data.Void
 import Text.Megaparsec
 import Text.Megaparsec.Char
@@ -114,30 +114,30 @@ multElvesTime timeFn = go 0
       | otherwise     = (Elf (Just w) timeDiff:elves, completed)
      where timeDiff = time - minTime
 
-  filterNames names = filter (\e -> not $ (_name e) `elem` names)
+  filterNames names = filter (\e -> _name e `notElem` names)
 
   go time elves graph = findAvailable graph >>= \case
     []        -> return $ time + maximum (fmap _time elves)
     available -> do
-      let names          = fmap _name . catMaybes . fmap _work $ elves
+      let names          = fmap _name . mapMaybe _work $ elves
           availableElves = length $ filter (isNothing . _work) elves
           assigned       = take availableElves $ filterNames names available
           elves'         = addWork assigned elves
-          minTime        = minimum . catMaybes . fmap elfTime $ elves'
+          minTime        = minimum . mapMaybe elfTime $ elves'
       let (elves'', completed) = decTimes minTime elves'
       graph' <- foldlM (flip removeNode) graph completed
       go (time + minTime) elves'' graph'
 
 day7part1 :: FilePath -> IO ()
 day7part1 path = do
-  ls <- catMaybes . fmap parseLine . lines <$> readFile path
+  ls <- mapMaybe parseLine . lines <$> readFile path
   graph <- buildGraph ls
   instructions <- buildInstructions graph
   print instructions
 
 day7part2 :: (Char -> Int) -> FilePath -> IO ()
 day7part2 f path = do
-  ls <- catMaybes . fmap parseLine . lines <$> readFile path
+  ls <- mapMaybe parseLine . lines <$> readFile path
   graph <- buildGraph ls
   time <- multElvesTime f (replicate 5 (Elf Nothing 0)) graph
   print time
