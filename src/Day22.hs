@@ -1,18 +1,24 @@
 module Day22 where
 
 import Control.Monad.State
+import Control.Monad.ST
 import Data.Array
 import Data.Foldable
 import Data.Hashable
+import Data.Maybe (fromJust)
 import Data.Ord (comparing)
 import GHC.Generics
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
-
-import Debug.Trace
+import qualified Data.HashTable.Class as H
+import qualified Data.HashTable.ST.Basic as HT
+import qualified Data.HashPSQ as Q
 
 type Point = (Int, Int)
+type Index = (Point, Item)
 data Region = Rocky | Wet | Narrow deriving (Show, Eq)
+data Item = Gear | Torch | Neither deriving (Show, Eq, Ord, Generic)
+instance Hashable Item
 
 geoIndexTable :: Point -> Int -> Point -> Array Point Int
 geoIndexTable botRight depth target = table
@@ -48,19 +54,26 @@ sumRegions depth = foldl' (\sum gi -> sum + erosionLevel gi depth `rem` 3) 0
 day22part1 :: Int -> Point -> Int
 day22part1 depth target = sumRegions depth $ geoIndexTable target depth target
 
-data Item = Gear | Torch | Neither deriving (Show, Eq, Generic)
-instance Hashable Item
-
 switches :: Item -> Region -> [Item]
 switches item = \case
   Rocky  -> if item == Neither then [Gear, Torch] else [item]
   Wet    -> if item == Torch then [Gear, Neither] else [item]
   Narrow -> if item == Gear then [Torch, Neither] else [item]
 
+-- | Account for switching items at the target position to be Torch.
+appendTargetSwitch :: Index -> Index -> ([Index] -> [Index])
+appendTargetSwitch (pos, item) (pos', item')
+  | pos == pos' && item /= item' = ((pos, item'):)
+  | otherwise                    = id
+
 adjs :: Point -> [Point]
 adjs (y, x) = [(y - 1, x), (y + 1, x), (y, x - 1), (y, x + 1)]
 
-type Cache = HM.HashMap (Point, Item) Int
+neighborDist :: Index -> Index -> Int
+neighborDist (_, i) (_, i') = if i == i' then 1 else 8
+
+manhattanDist :: Index -> Index -> Int
+manhattanDist ((y, x), _) ((y', x'), _) = abs (y' - y) + abs (x' - x)
 
 dijkstra :: Array Point Region -> Point -> [(Point, Item)]
 dijkstra regions target = prevsToList [] (Just (target, Torch))
@@ -91,19 +104,67 @@ dijkstra regions target = prevsToList [] (Just (target, Torch))
                   . fmap (\p -> (p, dists HM.! p))
                   $ HS.toList set
     pathFinished = HS.null set || u == (target, Torch)
-    possMoves = appendTargetSwitch
+    possMoves = appendTargetSwitch u (target, Torch)
               $ filter (inRange bnds) (adjs pos)
             >>= \p -> (p,) <$> switches item (regions ! p)
     (dists', prevs') = foldl' update (dists, prevs) possMoves
 
-    neighborDist (_, i) (_, i') = if i == i' then 1 else 8
-    -- Account for switching items at the target position to be Torch.
-    appendTargetSwitch | pos == target && item /= Torch = ((pos, Torch):)
-                       | otherwise                      = id
     update (!dists, !prevs) v
       | alt < dists HM.! v = (HM.insert v alt dists, HM.insert v (Just u) prevs)
       | otherwise          = (dists, prevs)
      where alt = dists HM.! u + neighborDist u v
+
+astar :: (Index -> Index -> Int)
+      -> (Index -> Index -> Int)
+      -> Array Point Region
+      -> Index
+      -> Index
+      -> [Index]
+astar dist heuristic regions start target = runST $ do
+  let frontier = Q.fromList $ do
+        p <- range bnds
+        i <- items
+        if (p, i) == start
+          then return ((p, i), 0, ())
+          else return ((p, i), maxBound :: Int, ())
+  cameFrom <- HT.new :: ST s (HT.HashTable s Index (Maybe Index))
+  costMap <- H.fromList
+    [((p, i), maxBound :: Int) | p <- range bnds, i <- items]
+    :: ST s (HT.HashTable s Index Int)
+  H.insert costMap start 0
+
+  let goNeighbor curr frontier neigh = do
+        currCost <- fromJust <$> H.lookup costMap curr
+        neighCost <- H.lookup costMap neigh
+        let newCost = currCost + dist curr neigh
+        if maybe True (> newCost) neighCost
+          then do
+            H.insert costMap neigh newCost
+            H.insert cameFrom neigh (Just curr)
+            let priority = newCost + heuristic neigh target
+            return $ snd $ Q.alter (updatePriority priority) neigh frontier
+          else return frontier
+      go frontier = case Q.findMin frontier of
+        Nothing                            -> return ()
+        Just (curr, _, _) | curr == target -> return ()
+        Just (curr, _, _)                  -> do
+          let frontier' = Q.deleteMin frontier
+          foldlM (goNeighbor curr) frontier' (possMoves curr) >>= go
+  go frontier
+
+  let prevsToList l Nothing _           = return l
+      prevsToList l (Just target) prevs = do
+        next <- join <$> H.lookup prevs target
+        prevsToList (target:l) next prevs
+  prevsToList [] (Just target) cameFrom
+ where
+  bnds = bounds regions
+  items = [Gear, Torch, Neither]
+  possMoves (pos, item) = appendTargetSwitch (pos, item) target
+                        $ filter (inRange bnds) (adjs pos)
+                      >>= \p -> (p,) <$> switches item (regions ! p)
+  updatePriority _ Nothing        = ((), Nothing)
+  updatePriority p' (Just (_, v)) = ((), Just (p', v))
 
 sumPath :: [(Point, Item)] -> Int
 sumPath []         = error "Empty path"
@@ -131,8 +192,8 @@ regionsPretty regions = do
 
 day22part2 :: Int -> Point -> IO ()
 day22part2 depth target = do
-  let rs   = regions (20, 20) depth (10, 10)
-      path = dijkstra rs target
+  let rs   = regions (1000, 50) depth target
+      path = astar neighborDist manhattanDist rs ((0, 0), Torch) (target, Torch)
   putStrLn $ regionsPretty rs
   print path
   print $ sumPath path

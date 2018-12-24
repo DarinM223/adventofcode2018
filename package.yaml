@@ -26,8 +26,10 @@ dependencies:
 - conduit-extra
 - containers
 - hashable
+- hashtables
 - megaparsec
 - mtl
+- psqueues
 - split
 - text
 - unordered-containers
