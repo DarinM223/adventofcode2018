@@ -6,10 +6,8 @@ import Data.Array
 import Data.Foldable
 import Data.Hashable
 import Data.Maybe (fromJust)
-import Data.Ord (comparing)
 import GHC.Generics
 import qualified Data.HashMap.Strict as HM
-import qualified Data.HashSet as HS
 import qualified Data.HashTable.Class as H
 import qualified Data.HashTable.ST.Basic as HT
 import qualified Data.HashPSQ as Q
@@ -20,10 +18,9 @@ data Region = Rocky | Wet | Narrow deriving (Show, Eq)
 data Item = Gear | Torch | Neither deriving (Show, Eq, Ord, Generic)
 instance Hashable Item
 
-geoIndexTable :: Point -> Int -> Point -> Array Point Int
-geoIndexTable botRight depth target = table
+geoIndexTable :: (Point, Point) -> Int -> Point -> Array Point Int
+geoIndexTable bnds depth target = table
  where
-  bnds = ((0, 0), botRight)
   table = array bnds [(p, go p) | p <- range bnds]
   get p = if inRange bnds p then table ! p else 0
 
@@ -44,21 +41,29 @@ region erosionLevel = case erosionLevel `rem` 3 of
   2 -> Narrow
   _ -> error "Invalid region type"
 
-regions :: Point -> Int -> Point -> Array Point Region
-regions botRight depth target = region . flip erosionLevel depth
-                            <$> geoIndexTable botRight depth target
+regions :: (Point, Point) -> Int -> Point -> Array Point Region
+regions bnds depth target = region . flip erosionLevel depth
+                        <$> geoIndexTable bnds depth target
 
 sumRegions :: Int -> Array Point Int -> Int
 sumRegions depth = foldl' (\sum gi -> sum + erosionLevel gi depth `rem` 3) 0
 
 day22part1 :: Int -> Point -> Int
-day22part1 depth target = sumRegions depth $ geoIndexTable target depth target
+day22part1 depth target = sumRegions depth
+                        $ geoIndexTable ((0, 0), target) depth target
 
-switches :: Item -> Region -> [Item]
-switches item = \case
-  Rocky  -> if item == Neither then [Gear, Torch] else [item]
-  Wet    -> if item == Torch then [Gear, Neither] else [item]
-  Narrow -> if item == Gear then [Torch, Neither] else [item]
+-- | In order to properly switch to an item, both your current
+-- position and the next position have to be in a region that allows
+-- you to use the item.
+switches :: Item -> Region -> Region -> [Item]
+switches item r r'
+  | valid item = [item]
+  | otherwise  = filter valid [Gear, Torch, Neither]
+ where
+  valid i = validRegion r i && validRegion r' i
+  validRegion Rocky  = (/= Neither)
+  validRegion Wet    = (/= Torch)
+  validRegion Narrow = (/= Gear)
 
 -- | Account for switching items at the target position to be Torch.
 appendTargetSwitch :: Index -> Index -> ([Index] -> [Index])
@@ -70,49 +75,16 @@ adjs :: Point -> [Point]
 adjs (y, x) = [(y - 1, x), (y + 1, x), (y, x - 1), (y, x + 1)]
 
 neighborDist :: Index -> Index -> Int
-neighborDist (_, i) (_, i') = if i == i' then 1 else 8
+neighborDist (p, i) (p', i') = itemCost + moveCost
+ where
+  itemCost = if i == i' then 0 else 7
+  moveCost = if p == p' then 0 else 1
 
 manhattanDist :: Index -> Index -> Int
 manhattanDist ((y, x), _) ((y', x'), _) = abs (y' - y) + abs (x' - x)
 
-dijkstra :: Array Point Region -> Point -> [(Point, Item)]
-dijkstra regions target = prevsToList [] (Just (target, Torch))
-                        $ go (HM.insert ((0, 0), Torch) 0 dists) prevs q
- where
-  bnds = bounds regions
-  items = [Gear, Torch, Neither]
-  q = HS.fromList [(p, i) | p <- range bnds, i <- items]
-  dists = HM.fromList [((p, i), maxBound :: Int) | p <- range bnds, i <- items]
-  prevs = HM.fromList [((p, i), Nothing) | p <- range bnds, i <- items]
-  prevsToList :: [(Point, Item)]
-              -> Maybe (Point, Item)
-              -> HM.HashMap (Point, Item) (Maybe (Point, Item))
-              -> [(Point, Item)]
-  prevsToList l Nothing _           = l
-  prevsToList l (Just target) prevs = prevsToList (target:l) next prevs
-   where next = join $ HM.lookup target prevs
-
-  go :: HM.HashMap (Point, Item) Int
-     -> HM.HashMap (Point, Item) (Maybe (Point, Item))
-     -> HS.HashSet (Point, Item)
-     -> HM.HashMap (Point, Item) (Maybe (Point, Item))
-  go dists prevs set
-    | pathFinished = prevs
-    | otherwise    = go dists' prevs' (HS.delete u set)
-   where
-    u@(pos, item) = fst . minimumBy (comparing snd)
-                  . fmap (\p -> (p, dists HM.! p))
-                  $ HS.toList set
-    pathFinished = HS.null set || u == (target, Torch)
-    possMoves = appendTargetSwitch u (target, Torch)
-              $ filter (inRange bnds) (adjs pos)
-            >>= \p -> (p,) <$> switches item (regions ! p)
-    (dists', prevs') = foldl' update (dists, prevs) possMoves
-
-    update (!dists, !prevs) v
-      | alt < dists HM.! v = (HM.insert v alt dists, HM.insert v (Just u) prevs)
-      | otherwise          = (dists, prevs)
-     where alt = dists HM.! u + neighborDist u v
+heuristic :: Index -> Index -> Int
+heuristic a@(_, i) b = manhattanDist a b + if i /= Torch then 7 else 0
 
 astar :: (Index -> Index -> Int)
       -> (Index -> Index -> Int)
@@ -160,40 +132,45 @@ astar dist heuristic regions start target = runST $ do
  where
   bnds = bounds regions
   items = [Gear, Torch, Neither]
-  possMoves (pos, item) = appendTargetSwitch (pos, item) target
-                        $ filter (inRange bnds) (adjs pos)
-                      >>= \p -> (p,) <$> switches item (regions ! p)
+  possMoves (pos, item)
+    =   appendTargetSwitch (pos, item) target
+    $   filter (inRange bnds) (adjs pos)
+    >>= \p -> (p,) <$> switches item (regions ! p) (regions ! pos)
   updatePriority _ Nothing        = ((), Nothing)
   updatePriority p' (Just (_, v)) = ((), Just (p', v))
 
 sumPath :: [(Point, Item)] -> Int
-sumPath []         = error "Empty path"
-sumPath ((p, i):l) = go p i l
+sumPath []    = error "Empty path"
+sumPath (p:l) = go p l
  where
-  go _ _ [] = 0
-  go p i ((p', i'):rest) = totalCost + go p' i' rest
-   where
-    itemCost = if i == i' then 0 else 7
-    moveCost = if p == p' then 0 else 1
-    totalCost = itemCost + moveCost
+  go _ []        = 0
+  go p (p':rest) = neighborDist p p' + go p' rest
 
-regionsPretty :: Array Point Region -> String
-regionsPretty regions = do
+regionsPretty :: [Index] -> Array Point Region -> String
+regionsPretty path regions = do
   y <- [0..maxy]
   x <- [0..maxx + 1]
   if x == maxx + 1
     then return '\n'
-    else return $ regionToChar $ regions ! (y, x)
+    else if HM.member (y, x) pathMap
+      then return $ itemToChar $ pathMap HM.! (y, x)
+      else return $ regionToChar $ regions ! (y, x)
  where
   (_, (maxy, maxx)) = bounds regions
+  pathMap = foldl' (\map (p, i) -> HM.insert p i map) HM.empty path
   regionToChar Rocky  = '.'
   regionToChar Wet    = '='
   regionToChar Narrow = '|'
+  itemToChar Gear    = 'G'
+  itemToChar Torch   = 'T'
+  itemToChar Neither = 'N'
 
-day22part2 :: Int -> Point -> IO ()
-day22part2 depth target = do
-  let rs   = regions (1000, 50) depth target
-      path = astar neighborDist manhattanDist rs ((0, 0), Torch) (target, Torch)
-  putStrLn $ regionsPretty rs
-  print path
+day22part2 :: IO ()
+day22part2 = do
+  let bnds   = ((0, 0), (800, 50))
+      depth  = 4848
+      target = (700, 15)
+      rs     = regions bnds depth target
+      path   = astar neighborDist heuristic rs ((0, 0), Torch) (target, Torch)
+  putStrLn $ regionsPretty path rs
   print $ sumPath path
