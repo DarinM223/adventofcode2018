@@ -65,14 +65,16 @@ switches item r r'
   validRegion Wet    = (/= Torch)
   validRegion Narrow = (/= Gear)
 
--- | Account for switching items at the target position to be Torch.
-appendTargetSwitch :: Index -> Index -> ([Index] -> [Index])
-appendTargetSwitch (pos, item) (pos', item')
-  | pos == pos' && item /= item' = ((pos, item'):)
-  | otherwise                    = id
-
 adjs :: Point -> [Point]
 adjs (y, x) = [(y - 1, x), (y + 1, x), (y, x - 1), (y, x + 1)]
+
+neighbors :: Array Point Region -> Index -> Index -> [Index]
+neighbors regions (pos', item') (pos, item)
+  | pos == pos' && item /= item' = (pos, item'):neighs
+  | otherwise                    = neighs
+ where
+  neighs = filter (inRange (bounds regions)) (adjs pos)
+       >>= \p -> (p,) <$> switches item (regions ! p) (regions ! pos)
 
 neighborDist :: Index -> Index -> Int
 neighborDist (p, i) (p', i') = itemCost + moveCost
@@ -86,25 +88,20 @@ manhattanDist ((y, x), _) ((y', x'), _) = abs (y' - y) + abs (x' - x)
 heuristic :: Index -> Index -> Int
 heuristic a@(_, i) b = manhattanDist a b + if i /= Torch then 7 else 0
 
-astar :: (Index -> Index -> Int)
-      -> (Index -> Index -> Int)
-      -> Array Point Region
-      -> Index
-      -> Index
-      -> [Index]
-astar dist heuristic regions start target = runST $ do
-  let frontier = Q.fromList $ do
-        p <- range bnds
-        i <- items
-        if (p, i) == start
-          then return ((p, i), 0, ())
-          else return ((p, i), maxBound :: Int, ())
-  cameFrom <- HT.new :: ST s (HT.HashTable s Index (Maybe Index))
-  costMap <- H.fromList
-    [((p, i), maxBound :: Int) | p <- range bnds, i <- items]
-    :: ST s (HT.HashTable s Index Int)
+astar :: forall i. (Ord i, Hashable i)
+      => (i -> i -> Int) -- ^ Distance between adjacent vertexes
+      -> (i -> i -> Int) -- ^ Heuristic function
+      -> (i -> [i])      -- ^ Returns neighbors for vertex
+      -> [i]             -- ^ List of all indexes in graph
+      -> i               -- ^ Start index
+      -> i               -- ^ End index
+      -> [i]             -- ^ Path from start index to end index
+astar dist heuristic neighbors indexes start target = runST $ do
+  let init i   = if i == start then (i, 0, ()) else (i, maxBound, ())
+      frontier = Q.fromList $ fmap init indexes
+  cameFrom <- HT.new
+  (costMap :: HT.HashTable s i Int) <- H.fromList ((, maxBound) <$> indexes)
   H.insert costMap start 0
-
   let goNeighbor curr frontier neigh = do
         currCost <- fromJust <$> H.lookup costMap curr
         neighCost <- H.lookup costMap neigh
@@ -121,23 +118,16 @@ astar dist heuristic regions start target = runST $ do
         Just (curr, _, _) | curr == target -> return ()
         Just (curr, _, _)                  -> do
           let frontier' = Q.deleteMin frontier
-          foldlM (goNeighbor curr) frontier' (possMoves curr) >>= go
+          foldlM (goNeighbor curr) frontier' (neighbors curr) >>= go
   go frontier
-
-  let prevsToList l Nothing _           = return l
-      prevsToList l (Just target) prevs = do
-        next <- join <$> H.lookup prevs target
-        prevsToList (target:l) next prevs
   prevsToList [] (Just target) cameFrom
  where
-  bnds = bounds regions
-  items = [Gear, Torch, Neither]
-  possMoves (pos, item)
-    =   appendTargetSwitch (pos, item) target
-    $   filter (inRange bnds) (adjs pos)
-    >>= \p -> (p,) <$> switches item (regions ! p) (regions ! pos)
   updatePriority _ Nothing        = ((), Nothing)
   updatePriority p' (Just (_, v)) = ((), Just (p', v))
+  prevsToList l Nothing _           = return l
+  prevsToList l (Just target) prevs = do
+    next <- join <$> H.lookup prevs target
+    prevsToList (target:l) next prevs
 
 sumPath :: [(Point, Item)] -> Int
 sumPath []    = error "Empty path"
@@ -167,10 +157,14 @@ regionsPretty path regions = do
 
 day22part2 :: IO ()
 day22part2 = do
-  let bnds   = ((0, 0), (800, 50))
-      depth  = 4848
-      target = (700, 15)
-      rs     = regions bnds depth target
-      path   = astar neighborDist heuristic rs ((0, 0), Torch) (target, Torch)
+  let
+    bnds    = ((0, 0), (800, 50))
+    depth   = 4848
+    target  = (700, 15)
+    rs      = regions bnds depth target
+    target' = (target, Torch)
+    neighs  = neighbors rs target'
+    idxs    = [(p, i) | p <- range bnds, i <- [Gear, Torch, Neither]]
+    path    = astar neighborDist heuristic neighs idxs ((0, 0), Torch) target'
   putStrLn $ regionsPretty path rs
   print $ sumPath path
