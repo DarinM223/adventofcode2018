@@ -27,17 +27,18 @@ data Group = Group
   , _immunities :: [AttackType]
   , _weaknesses :: [AttackType]
   , _team       :: UnitType
-  } deriving (Show)
-
-instance Eq Group where
-  g1 == g2 = _id g1 == _id g2
+  } deriving (Show, Eq)
 instance Ord Group where
-  compare = comparing effectivePower
+  compare g1 g2 = comparing effectivePower g1 g2
+               <> comparing _initiative g1 g2
 
-parseData :: String -> ([Group], [Group])
+mapFromList :: [Group] -> IntMap Group
+mapFromList gs = M.fromList [(_id g, g) | g <- gs]
+
+parseData :: String -> (IntMap Group, IntMap Group)
 parseData s = case evalState (runParserT parse "" s) 0 of
-  Left e  -> error $ errorBundlePretty e
-  Right v -> v
+  Left e         -> error $ errorBundlePretty e
+  Right (g1, g2) -> (mapFromList g1, mapFromList g2)
  where
   sc = L.space space1 empty empty
 
@@ -100,8 +101,7 @@ instance Ord Target where
                <> comparing (_initiative . group) g1 g2
 
 takeDamage :: Int -> Group -> Group
-takeDamage dmg g = g { _units = if units' < 0 then 0 else units' }
- where units' = _units g - (dmg `div` _hp g)
+takeDamage dmg g = g { _units = _units g - (dmg `div` _hp g) }
 
 calcDamage :: AttackType -> Int -> Group -> Int
 calcDamage ty pow g | ty `elem` _immunities g = 0
@@ -128,34 +128,65 @@ select selecting enemies =
 
 turn :: IntMap Group -> IntMap Group -> (IntMap Group, IntMap Group)
 turn infection immune =
-  filterMaps . foldl' go (infection, immune) . S.toDescList $ attacks
+  foldl' go (infection, immune) . S.toDescList $ attacks
  where
   attacks = S.union (select infection immune) (select immune infection)
   go (!infection, !immune) (Attack _ ty i1 i2) = case ty of
-    Infection -> (infection, updateGroup dmg g2 immune)
-    Immune    -> (updateGroup dmg g2 infection, immune)
+    Infection -> (infection, fromMaybe immune (group' immune))
+    Immune    -> (fromMaybe infection (group' infection), immune)
    where
-    g1 = case ty of { Infection -> infection M.! i1; Immune -> immune M.! i1 }
-    g2 = case ty of { Infection -> immune M.! i2; Immune -> infection M.! i2 }
-    dmg = calcDamage (_type g1) (effectivePower g1) g2
-  updateGroup dmg g = M.adjust (takeDamage dmg) (_id g)
-  filterMaps (!a, !b) = (filterMap a, filterMap b)
-   where filterMap = M.filter ((> 0) . _units)
+    g1 = case ty of
+      Infection -> M.lookup i1 infection
+      Immune    -> M.lookup i1 immune
+    g2 = case ty of
+      Infection -> M.lookup i2 immune
+      Immune    -> M.lookup i2 infection
+    dmg g1 = calcDamage (_type g1) (effectivePower g1)
+    group' team = updateGroup <$> (dmg <$> g1 <*> g2) <*> g2 <*> pure team
+  updateGroup dmg g team
+    | _units g' <= 0 = M.delete (_id g) team
+    | otherwise      = M.insert (_id g) g' team
+   where g' = takeDamage dmg g
 
-simulation :: IntMap Group -> IntMap Group -> Int
+simulation :: IntMap Group -> IntMap Group -> (Bool, Int)
 simulation !infection !immune
-  | M.null infection = countUnits immune
-  | M.null immune    = countUnits infection
+  | M.null infection = (True, countUnits immune)
+  | M.null immune    = (False, countUnits infection)
+  | stalemate        = (False, countUnits infection)
   | otherwise        = simulation infection' immune'
  where
   (infection', immune') = turn infection immune
   countUnits = foldl' (\acc g -> acc + _units g) 0
-
-mapFromList :: [Group] -> IntMap Group
-mapFromList gs = M.fromList [(_id g, g) | g <- gs]
+  stalemate = immune == immune' && infection == infection'
 
 day24part1 :: FilePath -> IO ()
 day24part1 path = do
   (immune, infection) <- parseData <$> readFile path
-  let units = simulation (mapFromList infection) (mapFromList immune)
+  let (_, units) = simulation infection immune
   print units
+
+checkIndex :: IntMap Group -> IntMap Group -> Int -> (Bool, Int)
+checkIndex inf imm i = simulation inf imm'
+ where imm' = M.map (\g -> g { _power = _power g + i }) imm
+
+findWin :: IntMap Group -> IntMap Group -> Int
+findWin = go 100
+ where
+  go i !inf !imm = if fst (checkIndex inf imm i) then i else go (i * 2) inf imm
+
+binarySearch :: IntMap Group -> IntMap Group -> Int -> Int -> Maybe Int
+binarySearch inf imm start end
+  | end < start = Nothing
+  | won         = binarySearch inf imm start (mid - 1) <|> Just mid
+  | otherwise   = binarySearch inf imm (mid + 1) end
+ where
+  mid = (start + end) `div` 2
+  (won, _) = checkIndex inf imm mid
+
+day24part2 :: FilePath -> IO ()
+day24part2 path = do
+  (immune, infection) <- parseData <$> readFile path
+  let winIndex = findWin infection immune
+      smaller  = binarySearch infection immune 0 winIndex
+      result   = snd . checkIndex infection immune <$> smaller
+  print result
